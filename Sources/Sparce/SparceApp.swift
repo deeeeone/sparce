@@ -11,7 +11,9 @@ struct SparceApp: App {
         WindowGroup("Sparce") {
             ContentView()
                 .environmentObject(library)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 1000, minHeight: 680)
+                .preferredColorScheme(.dark)
+                .tint(Theme.accent)
         }
         .windowStyle(.hiddenTitleBar)
     }
@@ -22,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when run as a bare SwiftPM executable (no .app bundle).
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Keep cover art around between launches.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20,
+                                   directory: Paths.cache.appendingPathComponent("images"))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -29,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case library = "Library"
+    case stores = "Stores"
     case bottles = "Bottles"
     case ps5 = "PS5 Porter"
     case components = "Components"
@@ -38,6 +44,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .library: return "gamecontroller"
+        case .stores: return "bag"
         case .bottles: return "shippingbox"
         case .ps5: return "arrow.triangle.2.circlepath"
         case .components: return "cpu"
@@ -49,11 +56,10 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 @MainActor
 struct ContentView: View {
     @EnvironmentObject var library: Library
-    @State private var section: SidebarItem? = .library
 
     var body: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $section) { item in
+            List(SidebarItem.allCases, selection: $library.section) { item in
                 Label(item.rawValue, systemImage: item.icon).tag(item)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -67,8 +73,9 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            switch section ?? .library {
+            switch library.section ?? .library {
             case .library: LibraryView()
+            case .stores: StoresView()
             case .bottles: BottlesView()
             case .ps5: PS5PorterView()
             case .components: ComponentsView()

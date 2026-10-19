@@ -14,6 +14,16 @@ enum Paths {
     static var ps5: URL { support.appendingPathComponent("PS5", isDirectory: true) }
     static var downloads: URL { support.appendingPathComponent("Downloads", isDirectory: true) }
     static var libraryFile: URL { support.appendingPathComponent("library.json") }
+    static var tools: URL { support.appendingPathComponent("Tools", isDirectory: true) }
+    static var epicConfig: URL { support.appendingPathComponent("Epic", isDirectory: true) }
+    static var gogConfig: URL { support.appendingPathComponent("GOG", isDirectory: true) }
+    static var gogAuth: URL { gogConfig.appendingPathComponent("auth.json") }
+    static var cache: URL { support.appendingPathComponent("Cache", isDirectory: true) }
+
+    /// Where store games get installed.
+    static let games: URL = {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Games/Sparce", isDirectory: true)
+    }()
 
     static let logs: URL = {
         let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
@@ -21,7 +31,8 @@ enum Paths {
     }()
 
     static func ensureAll() {
-        for dir in [support, engines, bottles, components, dxvk, dxmt, ps5, downloads, logs] {
+        for dir in [support, engines, bottles, components, dxvk, dxmt, ps5, downloads, logs,
+                    tools, epicConfig, gogConfig, cache, games] {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }

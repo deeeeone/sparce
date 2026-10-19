@@ -134,9 +134,20 @@ enum WineRunner {
     @MainActor
     static func launch(_ game: Game, library: Library) async throws {
         let logFile = Paths.logs.appendingPathComponent("\(game.name.slug).log")
-        let args = Shell.splitArguments(game.settings.arguments)
-        let exe = URL(fileURLWithPath: game.executable)
-        let workDir = game.workingDirectory.map { URL(fileURLWithPath: $0) } ?? exe.deletingLastPathComponent()
+        var args = Shell.splitArguments(game.settings.arguments)
+        var exe = URL(fileURLWithPath: game.executable)
+        var workDir = game.workingDirectory.map { URL(fileURLWithPath: $0) } ?? exe.deletingLastPathComponent()
+        var storeEnv: [String: String] = [:]
+
+        // Epic games need fresh auth tokens on every launch; Legendary supplies the exact command.
+        if game.store == .epic {
+            library.append("Getting launch info from Epic…")
+            let plan = try await Stores.epicLaunchPlan(game, library: library)
+            exe = plan.executable
+            args = plan.arguments + args
+            workDir = plan.workingDirectory ?? exe.deletingLastPathComponent()
+            storeEnv = plan.environment
+        }
 
         let id = game.id
         let name = game.name
@@ -149,6 +160,20 @@ enum WineRunner {
 
         let process: Process
         switch game.kind {
+        case .macApp:
+            var env = ProcessInfo.processInfo.environment
+            if game.settings.metalHUD { env["MTL_HUD_ENABLED"] = "1" }
+            for (k, v) in storeEnv { env[k] = v }
+            for (k, v) in Shell.parseEnv(game.settings.extraEnv) { env[k] = v }
+            if exe.pathExtension == "app" {
+                // -W waits so Sparce knows when the game closes.
+                process = try Shell.launchDetached(URL(fileURLWithPath: "/usr/bin/open"),
+                                                   ["-W", "-n", exe.path] + (args.isEmpty ? [] : ["--args"] + args),
+                                                   environment: env, directory: workDir, logFile: logFile, onExit: onExit)
+            } else {
+                process = try Shell.launchDetached(exe, args, environment: env, directory: workDir,
+                                                   logFile: logFile, onExit: onExit)
+            }
         case .ps5Native:
             var env = ProcessInfo.processInfo.environment
             env["ROSETTA_ADVERTISE_AVX"] = "1"
@@ -170,23 +195,22 @@ enum WineRunner {
                 try prepareBackend(game.settings.backend, bottle: bottle, engine: engine)
             }
             try await setRetina(game.settings.retinaMode, bottle: bottle, engine: engine, library: library)
-            let env = gameEnvironment(game: game, bottle: bottle, engine: engine)
+            var env = gameEnvironment(game: game, bottle: bottle, engine: engine)
+            for (k, v) in storeEnv { env[k] = v }
             process = try Shell.launchDetached(URL(fileURLWithPath: engine.wineBinary), [exe.path] + args,
                                                environment: env, directory: workDir, logFile: logFile,
                                                onExit: onExit)
         }
 
         library.running[game.id] = process
-        if let i = library.games.firstIndex(where: { $0.id == game.id }) {
-            library.games[i].lastPlayed = Date()
-        }
+        library.update(game.id) { $0.lastPlayed = Date() }
         library.append("Launched \(game.name). Log: \(logFile.path)")
     }
 
     @MainActor
     static func stop(_ game: Game, library: Library) async {
         library.running[game.id]?.terminate()
-        if game.kind != .ps5Native, let bottle = library.bottle(id: game.bottleID) ?? library.defaultBottle,
+        if game.kind != .ps5Native, game.kind != .macApp, let bottle = library.bottle(id: game.bottleID) ?? library.defaultBottle,
            let engine = library.engine(id: bottle.engineID) {
             await killAll(bottle: bottle, engine: engine)
         }

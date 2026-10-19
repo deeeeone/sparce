@@ -45,6 +45,62 @@ enum Shell {
         }
     }
 
+    /// Runs a process, returning its stdout. Every stdout/stderr line is also streamed to `onOutput`.
+    static func output(
+        _ executable: URL,
+        _ arguments: [String] = [],
+        environment: [String: String]? = nil,
+        onOutput: (@Sendable (String) -> Void)? = nil
+    ) async throws -> (status: Int32, stdout: String) {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = arguments
+            if let environment { process.environment = environment }
+            let out = Pipe()
+            let err = Pipe()
+            process.standardOutput = out
+            process.standardError = err
+            let buffer = LineCollector()
+            let stdoutData = DataBox()
+
+            out.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                stdoutData.append(data)
+                if let text = String(data: data, encoding: .utf8) {
+                    for line in text.split(separator: "\n") { onOutput?(String(line)) }
+                }
+            }
+            err.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+                for line in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+                    buffer.add(String(line))
+                    onOutput?(String(line))
+                }
+            }
+            process.terminationHandler = { p in
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+                // Drain anything left in the pipe.
+                stdoutData.append(out.fileHandleForReading.readDataToEndOfFile())
+                let text = String(data: stdoutData.data, encoding: .utf8) ?? ""
+                if p.terminationStatus != 0 {
+                    let tail = buffer.text.split(separator: "\n").suffix(3).joined(separator: "\n")
+                    continuation.resume(returning: (p.terminationStatus, text + "\n" + tail))
+                } else {
+                    continuation.resume(returning: (0, text))
+                }
+            }
+            do { try process.run() } catch {
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     /// Runs and throws if the exit code is not 0.
     static func check(
         _ executable: URL,
@@ -120,4 +176,11 @@ enum Shell {
         }
         return out
     }
+}
+
+final class DataBox: @unchecked Sendable {
+    private var storage = Data()
+    private let lock = NSLock()
+    func append(_ d: Data) { lock.lock(); storage.append(d); lock.unlock() }
+    var data: Data { lock.lock(); defer { lock.unlock() }; return storage }
 }

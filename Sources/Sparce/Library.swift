@@ -9,6 +9,14 @@ final class Library: ObservableObject {
     @Published var customEngines: [Engine] = [] { didSet { save() } }
     @Published var ps5 = PS5Settings() { didSet { save() } }
     @Published var defaultBottleID: UUID? { didSet { save() } }
+    @Published var preferMacVersions = true { didSet { save() } }
+
+    /// Install progress (0...1) for games being downloaded.
+    @Published var progress: [UUID: Double] = [:]
+    @Published var epicSignedIn = false
+    @Published var gogSignedIn = false
+    @Published var syncing = false
+    @Published var section: SidebarItem? = .library
 
     @Published private(set) var installedEngines: [Engine] = []
     @Published var log: [String] = []
@@ -27,15 +35,26 @@ final class Library: ObservableObject {
             customEngines = file.customEngines
             ps5 = file.ps5
             defaultBottleID = file.defaultBottleID
+            preferMacVersions = file.preferMacVersions ?? true
         }
         loading = false
         refreshEngines()
+        epicSignedIn = Stores.epicSignedIn
+        gogSignedIn = Stores.gogSignedIn
     }
+
+    func update(_ id: UUID, _ change: (inout Game) -> Void) {
+        guard let i = games.firstIndex(where: { $0.id == id }) else { return }
+        change(&games[i])
+    }
+
+    func game(id: UUID) -> Game? { games.first { $0.id == id } }
 
     private func save() {
         guard !loading else { return }
         let file = LibraryFile(games: games, bottles: bottles, customEngines: customEngines,
-                               ps5: ps5, defaultBottleID: defaultBottleID)
+                               ps5: ps5, defaultBottleID: defaultBottleID,
+                               preferMacVersions: preferMacVersions)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(file) {

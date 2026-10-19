@@ -54,6 +54,42 @@ enum GameKind: String, Codable {
     case windows       // .exe run through Wine
     case ps5Windows    // AnyPS5 Windows build run through Wine
     case ps5Native     // AnyPS5 macOS (x86-64 Mach-O) build run under Rosetta
+    case macApp        // A native Mac game (.app or binary)
+}
+
+enum StoreKind: String, Codable, CaseIterable, Identifiable {
+    case epic, gog
+    var id: String { rawValue }
+    var title: String { self == .epic ? "Epic Games" : "GOG" }
+}
+
+/// How well a game is expected to run on this Mac.
+enum CompatRating: String, Codable, CaseIterable, Identifiable {
+    case native     // Has a real Mac version
+    case works      // Runs well through Sparce
+    case issues     // Runs with problems
+    case blocked    // Won't run (usually anti-cheat)
+    case unknown
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .native: return "Native Mac"
+        case .works: return "Works"
+        case .issues: return "Playable with issues"
+        case .blocked: return "Won't run"
+        case .unknown: return "Untested"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .native: return "apple.logo"
+        case .works: return "checkmark.seal.fill"
+        case .issues: return "exclamationmark.triangle.fill"
+        case .blocked: return "xmark.octagon.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
 }
 
 struct Game: Codable, Identifiable, Equatable {
@@ -65,6 +101,17 @@ struct Game: Codable, Identifiable, Equatable {
     var bottleID: UUID?
     var settings = GameSettings()
     var lastPlayed: Date?
+
+    // Store integration. Optional so older library files still load.
+    var store: StoreKind?
+    var storeID: String?
+    var artURL: String?
+    var hasMacVersion: Bool?
+    var installed: Bool?
+    var installPath: String?
+    var userRating: CompatRating?
+
+    var isInstalled: Bool { installed ?? !executable.isEmpty }
 }
 
 struct Bottle: Codable, Identifiable, Equatable, Hashable {
@@ -114,4 +161,5 @@ struct LibraryFile: Codable {
     var customEngines: [Engine] = []
     var ps5 = PS5Settings()
     var defaultBottleID: UUID?
+    var preferMacVersions: Bool?
 }
